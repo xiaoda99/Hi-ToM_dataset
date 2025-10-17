@@ -80,7 +80,7 @@ def log(message):
     if True: print(message)
     
 
-verbs = ['likes', 'lost', 'saw']
+verbs = ['likes', 'hate', 'knows']
 
 class Engine:
     def __init__(self, agents, rooms=None, objects=None, containers=None, seed=None,
@@ -238,7 +238,7 @@ class Engine:
         order = 0
         for object in all_objects:
             # deliberately do not use self.last_move_event to avoid shortcut
-            try: location = [event for event in self.events if event.object == object][-1].container
+            try: location = [event for event in self.events if isinstance(event, MoveEvent) and event.object == object][-1].container
             except (IndexError, AttributeError): location = 'Unknown'
             QAs[order][object].append((f"Where is the {object} really?", location))
 
@@ -246,7 +246,7 @@ class Engine:
         for object in all_objects:
             for agent in self.agents:
                 # deliberately do not use self.last_move_event to avoid shortcut
-                try: location = [event for event in self.events if event.object == object and 
+                try: location = [event for event in self.events if isinstance(event, MoveEvent) and event.object == object and 
                                  event.observers.has(agent, actual=True)][-1].container
                 except (IndexError, AttributeError): location = 'Unknown'
                 QAs[order][object].append((f"Where does {agent} think the {object} is?", location))
@@ -258,14 +258,14 @@ class Engine:
                     if agent == other_agent:
                         continue
                     # deliberately do not use self.last_move_event to avoid shortcut
-                    try: location = [event for event in self.events if event.object == object and 
+                    try: location = [event for event in self.events if isinstance(event, MoveEvent) and event.object == object and 
                                      event.observers.has(agent, actual=True) and 
                                      event.observers.has(other_agent, perceived_by_others=True)][-1].container
                     except (IndexError, AttributeError): location = 'Unknown'
                     QAs[order][object].append((f"Where does {agent} think {other_agent} thinks the {object} is?", location))
         return self.filter_QAs(QAs) if filtered else QAs
 
-    def filter_QAs(self, QAs: dict[int, dict[str, list[tuple[str, str]]]], orders=[1, 2]):
+    def filter_QAs(self, QAs: dict[int, dict[str, list[tuple[str, str]]]], orders=[0, 1, 2]):
         for order in list(QAs.keys()):
             if order not in orders:
                 del QAs[order]

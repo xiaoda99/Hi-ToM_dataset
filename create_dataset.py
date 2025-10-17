@@ -1,16 +1,8 @@
 from world import World
 import numpy as np
-from min_tom1 import *
-from eval1 import *
+from min_tom import *
+from eval import *
 import json
-
-
-@dataclass
-class QAExample:
-    order: int
-    obj: str
-    question: str
-    expected: str
 
 
 # 从文本文件中提取内容
@@ -57,28 +49,6 @@ def generate_world_structure(seed, num_agents, num_locations):
     return agents, rooms
 
 
-def flatten_qas(qas: Dict[int, Dict[str, List[tuple[str, str]]]]) -> List[QAExample]:
-    """Convert the nested QA dictionary into a flat list."""
-    flat: List[QAExample] = []
-    for order, object_map in sorted(qas.items()):
-        for obj, qa_list in object_map.items():
-            for question, expected in qa_list:
-                flat.append(QAExample(order=order, obj=obj, question=question, expected=expected))
-    return flat
-
-
-def gather_story_data(engine: Engine, steps: int, story_id: int) -> tuple[str, List[QAExample], Dict[str, int]]:
-    story = engine.generate_story(steps=steps)
-    qas_dict = engine.generate_QAs()
-    qas = flatten_qas(qas_dict)
-    metadata = {
-        "story_id": story_id,
-        "n_peeks": getattr(engine, "n_peeks", 0),
-        "n_distractions": getattr(engine, "n_distractions", 0),
-    }
-    return story, qas, metadata
-
-
 # 每种order的问题只保留一个
 def select_random_per_order(seed, qas: List[QAExample]) -> List[QAExample]:
     np_random = np.random.RandomState(seed)
@@ -112,7 +82,6 @@ def generate_story(num_stories):
                 FlatResult(
                     **metadata,
                     id=3 * (story_id - 1) + qa.order + 1,
-                    story_length=l,
                     seed=engine.seed,
                     story_text=story,
                     model="",
@@ -125,7 +94,7 @@ def generate_story(num_stories):
             # print(qa)
         if story_id % 20 == 0:
             l = l + 1
-        print(story)
+        # print(story)
         # for item in flat_items:
         #     print(item)
 

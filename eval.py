@@ -47,13 +47,14 @@ class QAExample:
 
 @dataclass
 class FlatResult:
+    id: int
     seed: int
     story_id: int
     story_text: str
     model: str
     story_steps: int
-    n_events: int
-    events: List[Event]
+    # n_events: int
+    # events: List[Event]
     n_peeks: int
     n_distractions: int
     qa_order: int
@@ -140,35 +141,41 @@ def call_openrouter(
     start_time = time.perf_counter()
     backoff = 2.0
     for attempt in range(1, max_retries + 1):
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=timeout)
-        if response.status_code == 200:
-            try:
-                data = response.json()
-            except Exception as err:
-                print(f"{err} non-JSON response on attempt {attempt}: {response.text[:50]}. len={len(response.text)}")
-                time.sleep(backoff)
-                backoff *= 2
-                if attempt == max_retries:
-                    content = "non-JSON"
+        try:
+            response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=timeout)
+
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                except Exception as err:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                try:
+                    content = data["choices"][0]["message"]["content"].strip()
                     elapsed = time.perf_counter() - start_time
                     retries = attempt - 1
-                    print(f"non-JSON response for {max_retries} attempts. Return 'non-JSON'.")
                     return content, elapsed, retries
-                continue
-            try:
-                content = data["choices"][0]["message"]["content"].strip()
-            except (KeyError, IndexError) as err:
-                raise RuntimeError(f"Unexpected OpenRouter response format: {data}") from err
-            elapsed = time.perf_counter() - start_time
-            retries = attempt - 1
-            return content, elapsed, retries
-        if attempt == max_retries:
-            raise RuntimeError(
-                f"OpenRouter request failed after {max_retries} attempts: {response.status_code} {response.text}"
-            )
-        time.sleep(backoff)
-        backoff *= 2
-    raise RuntimeError("Failed to obtain OpenRouter response")
+                except (KeyError, IndexError) as err:
+                    error_msg = f"Unexpected API response format: {data}"
+                    content = f"error: {error_msg}"
+                    elapsed = time.perf_counter() - start_time
+                    retries = attempt - 1
+                    return content, elapsed, retries
+
+            else:
+                # HTTP 请求失败（比如 403、500、429 等）
+                error_msg = f"HTTP Error {response.status_code}: {response.text[:200]}"
+                time.sleep(backoff)
+                backoff *= 2
+        except Exception as e:
+            error_msg = f"请求异常: {type(e).__name__} - {str(e)}"
+            time.sleep(backoff)
+            backoff *= 2
+
+    # 如果所有重试都失败了，返回错误信息存储
+    error_msg = f"所有 {max_retries} 次尝试均失败"
+    return f"error: {error_msg}", 0.0, max_retries
 
 
 def evaluate_model_on_qas(
@@ -220,8 +227,8 @@ def gather_story_data(engine: Engine, steps: int, story_id: int) -> tuple[str, L
     metadata = {
         "story_id": story_id,
         "story_steps": steps,
-        "n_events": len(engine.events),
-        'events': engine.events,
+        # "n_events": len(engine.events),
+        # 'events': engine.events,
         "n_peeks": getattr(engine, "n_peeks", 0),
         "n_distractions": getattr(engine, "n_distractions", 0),
     }
@@ -294,20 +301,43 @@ def run_evaluation(
     df = pd.DataFrame([r.__dict__ for r in results])
     return df
 
+# 从json文件中获取测试数据
+def get_data():
+    with open("data1.json", "r", encoding="utf-8") as f:
+        flat_items = [FlatResult(**item) for item in json.load(f)]
+    return flat_items
+
+def run_evaluation_new(
+        models=DEFAULT_MODELS,
+        sleep: float = 0,
+        max_workers: int = 5,
+):
+    flat_items = get_data()
+    results = evaluate_models(models, flat_items, sleep=sleep, max_workers=max_workers)
+    df_new = pd.DataFrame([r.__dict__ for r in results])
+    excel_filename = 'results_4.5.xlsx'
+    if os.path.exists(excel_filename):
+        df_old = pd.read_excel(excel_filename)
+    else:
+        df_old = pd.DataFrame()
+
+    df_combined = pd.concat([df_old, df_new], ignore_index=True)
+    df_combined.to_excel(excel_filename, index=False)
+    print("测评完成")
 
 if __name__ == "__main__":
     # Example usage (replace with your own engine factory and parameters)
-    def factory() -> Engine:
-        return build_engine_example()
-
-    df = run_evaluations(
-        engine_factory=factory,
-        num_stories=1,
-        steps=10,
-        models=DEFAULT_MODELS,
-        max_qas=None,
-        sleep=0.5,
-        max_workers=5,
+    models = [
+        'anthropic/claude-sonnet-4',
+        'anthropic/claude-sonnet-4.5',
+        'anthropic/claude-opus-4.1',
+        # 'openai/gpt-5',
+        # 'google/gemini-2.5-pro',
+    ]
+    model=['anthropic/claude-sonnet-4.5']
+    run_evaluation_new(
+        models=model,
+        sleep=0,
+        max_workers=1,
     )
-    print(df.head())
 
